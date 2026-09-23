@@ -12,15 +12,18 @@ from PIL import Image
 from google import genai
 from google.genai import types
 
-st.set_page_config(page_title="Generador de imágenes", layout="wide")
+st.set_page_config(page_title="Generador de imágenes ", layout="wide")
 
-MODEL_NAME = "gemini-3.1-flash-image"  # Nano Banana 2
+MODEL_OPTIONS = {
+    "Nano Banana 2 — calidad alta (~$0.067/imagen)": "gemini-3.1-flash-image",
+    "Nano Banana 2 Lite — calidad estándar, ~mitad de precio (~$0.034/imagen)": "gemini-3.1-flash-lite-image",
+}
 PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt"]
 NUM_COL_CANDIDATES = ["Nº", "No", "N°", "Numero", "Número"]
 SECCION_COL_CANDIDATES = ["Sección", "Seccion"]
 MOMENTO_COL_CANDIDATES = ["Momento del guion", "Momento"]
 
-DEFAULT_KEYWORDS = "Lorenzo, joven de 18 años, joven Lorenzo, adolescente mexicano"
+DEFAULT_KEYWORDS = " "
 
 
 def find_col(df, candidates):
@@ -41,7 +44,7 @@ def row_needs_reference(prompt_text, keywords):
     return any(k.strip().lower() in prompt_low for k in keywords.split(",") if k.strip())
 
 
-def generate_image(client, prompt_text, reference_images=None, max_retries=3):
+def generate_image(client, model_name, prompt_text, reference_images=None, max_retries=3):
     """Llama a la API de Gemini y devuelve bytes PNG o None + mensaje de error."""
     contents = []
     if reference_images:
@@ -52,7 +55,7 @@ def generate_image(client, prompt_text, reference_images=None, max_retries=3):
     for attempt in range(max_retries):
         try:
             response = client.models.generate_content(
-                model=MODEL_NAME,
+                model=model_name,
                 contents=contents,
                 config=types.GenerateContentConfig(
                     response_modalities=["TEXT", "IMAGE"],
@@ -80,6 +83,8 @@ def main():
     with st.sidebar:
         st.header("Configuración")
         api_key = st.text_input("Gemini API key", type="password", help="Consíguela gratis en aistudio.google.com")
+        model_label = st.selectbox("Calidad / modelo", list(MODEL_OPTIONS.keys()))
+        model_name = MODEL_OPTIONS[model_label]
         keywords = st.text_area(
             "Palabras clave para detectar filas del personaje principal",
             value=DEFAULT_KEYWORDS,
@@ -148,7 +153,7 @@ def main():
             status.write(f"Generando {i + 1}/{total}: {filename}")
 
             refs = reference_images if row_needs_reference(prompt_text, keywords) else None
-            img_bytes, error = generate_image(client, prompt_text, refs)
+            img_bytes, error = generate_image(client, model_name, prompt_text, refs)
 
             if img_bytes:
                 st.session_state.generated[filename] = img_bytes
