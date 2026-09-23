@@ -15,7 +15,7 @@ from google.genai import types
 st.set_page_config(page_title="Generador de imágenes ", layout="wide")
 
 MODEL_OPTIONS = {
-    "Nano Banana 2 — calidad alta (~$0.067/imagen)": "gemini-3.1-flash-image",
+    "Nano Banana 2 — calidad alta": "gemini-3.1-flash-image",
     "Nano Banana 2 Lite — calidad estándar": "gemini-3.1-flash-lite-image",
 }
 PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt"]
