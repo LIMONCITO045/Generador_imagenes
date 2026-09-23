@@ -16,7 +16,7 @@ st.set_page_config(page_title="Generador de imágenes ", layout="wide")
 
 MODEL_OPTIONS = {
     "Nano Banana 2 — calidad alta (~$0.067/imagen)": "gemini-3.1-flash-image",
-    "Nano Banana 2 Lite — calidad estándar, ~mitad de precio (~$0.034/imagen)": "gemini-3.1-flash-lite-image",
+    "Nano Banana 2 Lite — calidad estándar": "gemini-3.1-flash-lite-image",
 }
 PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt"]
 NUM_COL_CANDIDATES = ["Nº", "No", "N°", "Numero", "Número"]
