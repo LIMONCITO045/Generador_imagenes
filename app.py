@@ -18,7 +18,7 @@ MODEL_OPTIONS = {
     "Nano Banana 2 — calidad alta": "gemini-3.1-flash-image",
     "Nano Banana 2 Lite — calidad estándar": "gemini-3.1-flash-lite-image",
 }
-PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt"]
+PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt","prompt completo", "Prompt completo"]
 NUM_COL_CANDIDATES = ["Nº", "No", "N°", "Numero", "Número"]
 SECCION_COL_CANDIDATES = ["Sección", "Seccion"]
 MOMENTO_COL_CANDIDATES = ["Momento del guion", "Momento"]
