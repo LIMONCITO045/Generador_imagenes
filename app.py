@@ -18,7 +18,7 @@ MODEL_OPTIONS = {
     "Nano Banana 2 — calidad alta": "gemini-3.1-flash-image",
     "Nano Banana 2 Lite — calidad estándar": "gemini-3.1-flash-lite-image",
 }
-PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt","prompt completo", "Prompt completo"]
+PROMPT_COL_CANDIDATES = ["Prompt de imagen", "Prompt", "prompt"]
 NUM_COL_CANDIDATES = ["Nº", "No", "N°", "Numero", "Número"]
 SECCION_COL_CANDIDATES = ["Sección", "Seccion"]
 MOMENTO_COL_CANDIDATES = ["Momento del guion", "Momento"]
@@ -42,6 +42,21 @@ def sanitize(text, maxlen=40):
 def row_needs_reference(prompt_text, keywords):
     prompt_low = prompt_text.lower()
     return any(k.strip().lower() in prompt_low for k in keywords.split(",") if k.strip())
+
+
+def unique_filename(base_filename, used_filenames):
+    """Evita que dos filas con el mismo nombre se pisen entre sí (esto era lo que
+    causaba que subieras 200 prompts y salieran 150 imágenes: la fila repetida
+    sobreescribía a la anterior sin avisar)."""
+    if base_filename not in used_filenames:
+        return base_filename, False
+    name, ext = os.path.splitext(base_filename)
+    n = 2
+    candidate = f"{name}_{n}{ext}"
+    while candidate in used_filenames:
+        n += 1
+        candidate = f"{name}_{n}{ext}"
+    return candidate, True
 
 
 def generate_image(client, model_name, prompt_text, reference_images=None, max_retries=3):
@@ -130,7 +145,9 @@ def main():
         st.dataframe(df.head(10))
 
     if "generated" not in st.session_state:
-        st.session_state.generated = {}  # idx -> (filename, bytes) or (filename, None, error)
+        st.session_state.generated = {}  # filename -> bytes
+    if "run_log" not in st.session_state:
+        st.session_state.run_log = []  # lista de dicts, una entrada por fila del Excel
 
     start = st.button("🚀 Generar imágenes", type="primary", disabled=not api_key)
     if not api_key:
@@ -140,31 +157,88 @@ def main():
         client = genai.Client(api_key=api_key)
         progress = st.progress(0.0)
         status = st.empty()
-        log = st.container()
+        log_box = st.container()
         total = len(df)
 
+        # Reinicia todo en cada corrida nueva para que el reporte no mezcle
+        # resultados de un Excel con otro.
+        st.session_state.generated = {}
+        st.session_state.run_log = []
+
         for i, (_, row) in enumerate(df.iterrows()):
-            prompt_text = str(row[prompt_col])
-            num = row[num_col] if num_col else i + 1
-            seccion = sanitize(row[seccion_col]) if seccion_col else "seccion"
-            momento = sanitize(row[momento_col]) if momento_col else ""
-            filename = f"{int(num):03d}_{seccion}_{momento}.png"
+            fila_excel = i + 2  # +2: fila 1 es encabezado y pandas empieza en 0
+            entry = {
+                "fila_excel": fila_excel,
+                "filename": None,
+                "estado": None,
+                "detalle": "",
+            }
+            try:
+                prompt_text = str(row[prompt_col])
+                num_raw = row[num_col] if num_col else i + 1
+                try:
+                    num = int(num_raw)
+                except (ValueError, TypeError):
+                    num = i + 1
+                    entry["detalle"] = f"Nº inválido en el Excel ('{num_raw}'), se usó {num} en su lugar. "
+                seccion = sanitize(row[seccion_col]) if seccion_col else "seccion"
+                momento = sanitize(row[momento_col]) if momento_col else ""
+                base_filename = f"{num:03d}_{seccion}_{momento}.png"
+                filename, was_renamed = unique_filename(base_filename, st.session_state.generated.keys())
+                if was_renamed:
+                    entry["detalle"] += f"Nombre duplicado de '{base_filename}', renombrado para no perder la imagen. "
+                entry["filename"] = filename
 
-            status.write(f"Generando {i + 1}/{total}: {filename}")
+                status.write(f"Generando {i + 1}/{total}: {filename}")
 
-            refs = reference_images if row_needs_reference(prompt_text, keywords) else None
-            img_bytes, error = generate_image(client, model_name, prompt_text, refs)
+                refs = reference_images if row_needs_reference(prompt_text, keywords) else None
+                img_bytes, error = generate_image(client, model_name, prompt_text, refs)
 
-            if img_bytes:
-                st.session_state.generated[filename] = img_bytes
-                log.write(f"✅ {filename}")
-            else:
-                log.write(f"❌ {filename} — {error}")
+                if img_bytes:
+                    st.session_state.generated[filename] = img_bytes
+                    entry["estado"] = "OK"
+                    log_box.write(f"✅ {filename}")
+                else:
+                    entry["estado"] = "ERROR_API"
+                    entry["detalle"] += error or "Sin detalle"
+                    log_box.write(f"❌ {filename} — {error}")
 
+            except Exception as e:
+                entry["estado"] = "ERROR_FILA"
+                entry["detalle"] += f"Excepción al procesar la fila: {e}"
+                log_box.write(f"⚠️ Fila {fila_excel} — error inesperado: {e}")
+
+            st.session_state.run_log.append(entry)
             progress.progress((i + 1) / total)
             time.sleep(delay)
 
         status.write("¡Listo!")
+
+    if st.session_state.run_log:
+        log_df = pd.DataFrame(st.session_state.run_log)
+        ok = (log_df["estado"] == "OK").sum()
+        errores = (log_df["estado"] != "OK").sum()
+        duplicados = log_df["detalle"].str.contains("renombrado", na=False).sum()
+
+        st.subheader("📋 Reporte de la corrida")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Filas en el Excel", len(log_df))
+        c2.metric("Imágenes generadas", ok)
+        c3.metric("Fallidas", errores)
+        c4.metric("Nombres duplicados corregidos", duplicados)
+
+        if errores > 0:
+            st.warning(f"{errores} fila(s) no generaron imagen. Revisa el detalle abajo.")
+        with st.expander("Ver reporte completo (una fila por prompt del Excel)", expanded=errores > 0):
+            st.dataframe(log_df, use_container_width=True)
+
+        log_csv = log_df.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Descargar reporte (CSV)",
+            data=log_csv,
+            file_name=f"reporte_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+        )
 
     if st.session_state.generated:
         st.subheader(f"Imágenes generadas: {len(st.session_state.generated)}")
@@ -177,10 +251,12 @@ def main():
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
             for fname, data in st.session_state.generated.items():
                 zf.writestr(fname, data)
+            if st.session_state.run_log:
+                zf.writestr("reporte.csv", pd.DataFrame(st.session_state.run_log).to_csv(index=False))
         buf.seek(0)
 
         st.download_button(
-            "⬇️ Descargar todas (ZIP)",
+            "⬇️ Descargar todas + reporte (ZIP)",
             data=buf,
             file_name=f"imagenes_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
             mime="application/zip",
